@@ -139,6 +139,16 @@ proc adi_project {project_name {mode 0} {parameter_list {}} } {
     set board [lindex [lsearch -all -inline [get_board_parts] *k26*] end]
   }
 
+  if [regexp "_zcu15eg" $project_name] {
+    set device "xczu15eg-ffvb1156-2-i"
+    set board [lindex [lsearch -all -inline [get_board_parts] *zcu15eg*] end]
+  }
+
+  if [regexp "_tq15eg" $project_name] {
+    set device "xczu15eg-ffvb1156-2-i"
+    set board [lindex [lsearch -all -inline [get_board_parts] *tq15eg*] end]
+  }
+
   adi_project_create $project_name $mode $parameter_list $device $board
 }
 

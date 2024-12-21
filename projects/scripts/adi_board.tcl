@@ -314,7 +314,7 @@ proc ad_disconnect {p_name_1 p_name_2} {
 #  by the axi_adxcvr.
 #
 
-proc ad_xcvrcon {u_xcvr a_xcvr a_jesd {lane_map {}} {link_clk {}} {device_clk {}} {num_of_max_lanes -1} {partial_lane_map {}} {connect_empty_lanes 1}} {
+proc ad_xcvrcon {u_xcvr a_xcvr a_jesd {lane_map {}} {link_clk {}} {device_clk {}} {num_of_max_lanes -1} {partial_lane_map {}} {connect_empty_lanes 1}  {bd_port_prefix {}}} {
 
   global xcvr_index
   global xcvr_tx_index
@@ -355,19 +355,17 @@ proc ad_xcvrcon {u_xcvr a_xcvr a_jesd {lane_map {}} {link_clk {}} {device_clk {}
   set index $xcvr_rx_index
 
   if {$tx_or_rx_n == 1} {
-
     set txrx "tx"
     set data_dir "O"
     set ctrl_dir "I"
     set index $xcvr_tx_index
   }
 
-  set m_sysref ${txrx}_sysref_${index}
-  set m_sync ${txrx}_sync_${index}
-  set m_data ${txrx}_data
+  set m_sysref ${bd_port_prefix}${txrx}_sysref_${index}
+  set m_sync ${bd_port_prefix}${txrx}_sync_${index}
+  set m_data ${bd_port_prefix}${txrx}_data
 
-  if {$xcvr_index >= 1} {
-
+  if {"${bd_port_prefix}" == "" && $xcvr_index >= 1} {
     set m_sysref ${txrx}_sysref_${xcvr_index}_${index}
     set m_sync ${txrx}_sync_${xcvr_index}_${index}
     set m_data ${txrx}_data_${xcvr_index}
