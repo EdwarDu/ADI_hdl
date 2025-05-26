@@ -1,34 +1,23 @@
 ####################################################################################
-## Copyright (c) 2023 - 2024 Analog Devices, Inc.
+## Copyright (c) 2023 - 2025 Analog Devices, Inc.
 ## SPDX short identifier: BSD-1-Clause
 ####################################################################################
 
 ################################################################################
 ## Make script for building Lattice projects. ##################################
 #
-# * Make commands: all pb rd rd-force pb-force clean clean-all clean-pb clean-rd.
+# * Make commands: all pb rd rd-force pb-force clean clean-all.
 #
 # * pb: checks if dependencies exist and builds the Propel Builder project.
 #   (block design)
 # * rd: checks for dependencies and builds the Radiant Project
 #   based on Propel Builder Project.
+# * force: you can build the whole project without
+#   checking for dependencies.
 # * pb-force and rd-force: you can build the respective projects without
 #   checking for dependencies.
 # * clean: deletes the whole project and log files.
 # * clean-all: deletes all the generated files during build.
-# * clean-pb: deletes the Propel Builder project files and directories.
-#   After this you can rebuild the Propel Builder project separately by
-#   'make pb' but only if you created the project without using the '-sbc'
-#   template file option wich is used in official project creation command,
-#   because if you create with '-sbc' option the command will not create
-#   the project becouse the first <project_name> folder from
-#   <adi_project_folder>/<project_name>/<project_name> is not deleted,
-#   becouse that contains the Radiant project files. Also deletes the log
-#   file for Propel Builder project.
-# * clean-rd: cleans the content of <adi_project_folder>/<project_name>/
-#   folder ralated to Radiant project except the
-#   <adi_project_folder>/<project_name>/<project_name> folder.
-#   Also deletes the log file for Radiant project.
 #
 # * Note: The limitation for Propel Builder project is that it does not exit
 #   with error code no matter if the design was built or failed to,
@@ -39,15 +28,17 @@
 ################################################################################
 
 HDL_PROJECT_PATH := $(subst scripts/project-lattice.mk,,$(lastword $(MAKEFILE_LIST)))
+HDL_LIBRARY_PATH := $(HDL_PROJECT_PATH)../library/
 
 include $(HDL_PROJECT_PATH)../quiet.mk
+include $(HDL_LIBRARY_PATH)scripts/lattice_tool_set.mk
 
 ifeq ($(OS), Windows_NT)
 	RADIANT := pnmainc
-	PROPEL_BUILDER := propelbld
+	PROPEL_BUILDER := propelbld -console
 else
 	RADIANT := radiantc
-	PROPEL_BUILDER := propelbldwrap
+	PROPEL_BUILDER := propelbldwrap -console
 endif
 
 # Common dependencies that all projects have.
@@ -58,9 +49,10 @@ M_DEPS += $(HDL_PROJECT_PATH)scripts/adi_project_lattice_pb.tcl
 M_DEPS += $(HDL_PROJECT_PATH)scripts/adi_project_lattice.tcl
 M_DEPS += $(HDL_PROJECT_PATH)../scripts/adi_env.tcl
 M_DEPS += system_top.v
-M_DEPS += $(PROJECT_NAME)/$(PROJECT_NAME)/$(PROJECT_NAME).v
+M_DEPS += _bld/$(PROJECT_NAME)/$(PROJECT_NAME)/$(PROJECT_NAME).v
 M_DEPS += $(wildcard *system_constr.pdc)
 M_DEPS += $(wildcard *system_constr.sdc)
+M_DEPS += _bld/pb_design_finished.log
 
 PB_DEPS_FILTER += %.tcl
 PB_DEPS_FILTER += %.mem
@@ -76,14 +68,21 @@ R_DEPS_FILTER += %.ipx
 R_DEPS_FILTER += %adi_env.tcl
 R_DEPS_FILTER += %adi_project_lattice.tcl
 R_DEPS_FILTER += %system_project.tcl
+R_DEPS_FILTER += %.log
 
-PB_TARGETS += $(PROJECT_NAME)/$(PROJECT_NAME)/$(PROJECT_NAME).sbx
-PB_TARGETS += $(PROJECT_NAME)/$(PROJECT_NAME)/$(PROJECT_NAME).v
+PB_TARGETS += _bld/$(PROJECT_NAME)/$(PROJECT_NAME)/$(PROJECT_NAME).sbx
+PB_TARGETS += _bld/$(PROJECT_NAME)/$(PROJECT_NAME)/$(PROJECT_NAME).v
+PB_TARGETS += _bld/pb_design_finished.log
 
-R_TARGETS += $(PROJECT_NAME)/$(PROJECT_NAME).rdf
-R_TARGETS += $(PROJECT_NAME)/impl_1/$(PROJECT_NAME)_impl_1.bit
+R_TARGETS += _bld/$(PROJECT_NAME)/$(PROJECT_NAME).rdf
+R_TARGETS += _bld/$(PROJECT_NAME)/impl_1/$(PROJECT_NAME)_impl_1.bit
 
-.PHONY: all pb rd rd-force pb-force clean clean-all clean-pb clean-rd
+CLEAN_TARGET += $(wildcard ./*/)
+CLEAN_TARGET += $(wildcard *.log)
+CLEAN_TARGET += $(wildcard ./radiantc.*)
+CLEAN_TARGET += $(filter-out . .. ./. ./.., $(wildcard .*))
+
+.PHONY: all pb rd force rd-force pb-force clean clean-all
 
 all: pb rd
 
@@ -92,41 +91,39 @@ pb: $(PB_TARGETS)
 rd: $(R_TARGETS)
 
 clean:
-	-rm -Rf ${PROJECT_NAME}
-	-rm -f $(wildcard *.log)
-	-rm -Rf ./ipcfg
-	-rm -Rf ./sge
+	$(call clean, \
+		$(CLEAN_TARGET), \
+		$(HL)$(PROJECT_NAME)$(NC) project)
 
 clean-all:
-	-rm -Rf ${PROJECT_NAME}
-	-rm -f $(wildcard *.log)
-	-rm -Rf ./ipcfg
-	-rm -Rf $(filter-out . .. ./. ./.., $(wildcard .*))
-	-rm -Rf ./sge
+	$(call clean, \
+		$(CLEAN_TARGET), \
+		$(HL)$(PROJECT_NAME)$(NC) project)
+	@for lib in $(LIB_DEPS); do \
+		$(MAKE) -C $(HDL_LIBRARY_PATH)$${lib} clean; \
+	done
 
-clean-pb:
-	-rm -Rf $(wildcard $(PROJECT_NAME)/$(PROJECT_NAME)/*)
-	-rm -f $(PROJECT_NAME)/.socproject
-	-rm -Rf ./ipcfg
-	-rm -f $(PROJECT_NAME)_propel_builder.log
-	-rm -Rf ./sge
+# The library name in .tcl script must be the same as the library folder name
+LIB_TARGETS := $(foreach dep,$(LIB_DEPS),${HDL_LIBRARY_PATH}$(dep)/ltt/metadata.xml)
+ifeq ($(LATTICE_DEFAULT_PATHS),1)
+LIB_TARGETS := $(LIB_TARGETS) $(foreach dep,$(LIB_DEPS),${LATTICE_DEFAULT_IP_PATH}/$(lastword $(subst /, ,$(dep)))/metadata.xml)
+endif
 
-clean-rd:
-	-rm -Rf $(filter-out $(PROJECT_NAME)/$(PROJECT_NAME) \
-		$(PROJECT_NAME)/.socproject, \
-		$(wildcard $(PROJECT_NAME)/*))
-	-rm -Rf $(filter-out $(PROJECT_NAME)/$(PROJECT_NAME) \
-		$(PROJECT_NAME)/.socproject \
-		$(PROJECT_NAME)/. \
-		$(PROJECT_NAME)/.., $(wildcard $(PROJECT_NAME)/.*))
-	-rm -f $(PROJECT_NAME)_radiant.log
+$(LIB_TARGETS):
+	$(foreach dep,$(LIB_DEPS), \
+		flock $(HDL_LIBRARY_PATH)$(dep)/.lock -c "cd $(HDL_LIBRARY_PATH)$(dep) \
+		&& $(MAKE) lattice";) exit $$?
 
-$(PB_TARGETS): $(filter-out $(PB_DEPS_FILTER_OUT),$(filter $(PB_DEPS_FILTER), $(M_DEPS)))
-	-rm -f $(PROJECT_NAME)_propel_builder.log
+$(PB_TARGETS): $(filter-out $(PB_DEPS_FILTER_OUT),$(filter $(PB_DEPS_FILTER), $(M_DEPS))) $(LIB_TARGETS)
+	$(call skip_if_missing, \
+		Project, \
+		$(PROJECT_NAME), \
+		true, \
+	rm -Rf $(CLEAN_TARGET) ; \
 	$(call build, \
 		$(PROPEL_BUILDER) system_project_pb.tcl, \
 		$(PROJECT_NAME)_propel_builder.log, \
-		$(HL)$(PROJECT_NAME)$(NC) project)
+		$(HL)$(PROJECT_NAME)$(NC) project))
 	@for file in $(filter $(R_DEPS_FILTER), $(M_DEPS)); do \
 		if [ ! -f $$file ]; then \
 			echo "No [$(HL)$$file$(NC)] found. ... $(RED)FAILED$(NC)"; \
@@ -137,12 +134,21 @@ $(PB_TARGETS): $(filter-out $(PB_DEPS_FILTER_OUT),$(filter $(PB_DEPS_FILTER), $(
 
 $(R_TARGETS): $(filter $(R_DEPS_FILTER), $(M_DEPS))
 	-rm -f $(PROJECT_NAME)_radiant.log
-	-rm -f $(PROJECT_NAME)/system_constr.pdc
-	-rm -f $(PROJECT_NAME)/system_constr.sdc
+	-rm -f _bld/$(PROJECT_NAME)/system_constr.pdc
+	-rm -f _bld/$(PROJECT_NAME)/system_constr.sdc
 	$(call build, \
 		$(RADIANT) system_project.tcl, \
 		$(PROJECT_NAME)_radiant.log, \
 		$(HL)$(PROJECT_NAME)$(NC) project)
+	@for file in $(R_TARGETS); do \
+		if [ ! -f $$file ]; then \
+			echo "No [$(HL)$$file$(NC)] found. ... $(RED)FAILED$(NC)"; \
+			echo "For details see $(HL)$(CURDIR)/$(PROJECT_NAME)_radiant.log$(NC)"; \
+			exit 2; \
+		fi \
+	done
+
+force: pb-force rd-force
 
 pb-force:
 	$(call build, \
@@ -155,4 +161,3 @@ rd-force:
 	$(RADIANT) system_project.tcl, \
 	$(PROJECT_NAME)_radiant.log, \
 	$(HL)$(PROJECT_NAME)$(NC) project)
-

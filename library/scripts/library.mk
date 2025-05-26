@@ -1,5 +1,5 @@
 ####################################################################################
-## Copyright (c) 2018 - 2023 Analog Devices, Inc.
+## Copyright (c) 2018 - 2025 Analog Devices, Inc.
 ## SPDX short identifier: BSD-1-Clause
 ####################################################################################
 
@@ -7,6 +7,7 @@
 HDL_LIBRARY_PATH := $(subst scripts/library.mk,,$(lastword $(MAKEFILE_LIST)))
 
 include $(HDL_LIBRARY_PATH)../quiet.mk
+include $(HDL_LIBRARY_PATH)scripts/lattice_tool_set.mk
 
 CASE_INCLUDE := $(wildcard temporary_case_dependencies.mk)
 ifneq ($(CASE_INCLUDE),)
@@ -49,17 +50,25 @@ CLEAN_TARGET += tb/.Xil
 CLEAN_TARGET += tb/xsim_gui_cmd.tcl
 CLEAN_TARGET += tb/libraries
 
+ifneq ($(LATTICE_DEPS),)
+	LATTICE_CLEAN_TARGET += ./*.log
+	LATTICE_CLEAN_TARGET += ltt
+	ifeq ($(LATTICE_DEFAULT_PATHS),1)
+		LATTICE_CLEAN_TARGET += ${LATTICE_DEFAULT_IP_PATH}/${LIBRARY_NAME}
+	endif
+endif
+
 GENERIC_DEPS += $(HDL_LIBRARY_PATH)../scripts/adi_env.tcl
 
-.PHONY: all intel xilinx clean clean-all
+.PHONY: all intel xilinx lattice clean clean-all ltt-interfaces clean-ltt-interfaces
 
-all: intel xilinx
+all: intel xilinx lattice
 
-clean: clean-all
+clean: clean-all clean-ltt-interfaces
 
 clean-all:
 	$(call clean, \
-		$(CLEAN_TARGET) .lock, \
+		$(CLEAN_TARGET) $(LATTICE_CLEAN_TARGET) .lock, \
 		$(HL)$(LIBRARY_NAME)$(NC) library)
 	@for lib in $(XILINX_LIB_DEPS); do \
 		$(MAKE) -C $(HDL_LIBRARY_PATH)$${lib} clean; \
@@ -117,10 +126,45 @@ component.xml: $(XILINX_DEPS) $(_XILINX_INTF_DEPS) $(_XILINX_LIB_DEPS)
 
 $(_XILINX_INTF_DEPS):
 	$(MAKE) -C $(dir $@) $(notdir $@)
-
-$(_XILINX_LIB_DEPS):
+FORCE:
+$(_XILINX_LIB_DEPS): FORCE
 	flock $(dir $@).lock -c "$(MAKE) -C $(dir $@) xilinx"; exit $$?
 
 %.xml:
 	$(MAKE) -C $(dir $@) $(notdir $@)
+endif
+
+ifneq ($(LATTICE_DEPS),)
+
+LATTICE_DEPS += $(GENERIC_DEPS)
+LATTICE_DEPS += $(HDL_LIBRARY_PATH)scripts/adi_ip_lattice.tcl
+_LATTICE_INTF_DEPS := $(foreach dep,$(LATTICE_INTERFACE_DEPS),$(HDL_LIBRARY_PATH)$(dep))
+
+LATTICE_TARGETS := ./ltt/metadata.xml
+ifeq ($(LATTICE_DEFAULT_PATHS),1)
+LATTICE_TARGETS += $(LATTICE_DEFAULT_IP_PATH)/$(LIBRARY_NAME)/metadata.xml
+endif
+
+lattice: ltt-interfaces $(LATTICE_TARGETS)
+
+.DELETE_ON_ERROR:
+
+$(LATTICE_TARGETS): $(LATTICE_DEPS)
+	$(call skip_if_missing, \
+		Library, \
+		$(LIBRARY_NAME), \
+		true, \
+	rm -rf $(LATTICE_CLEAN_TARGET) ; \
+	$(call build, \
+		$(LATTICE_IP_TOOL) $(LIBRARY_NAME)_ltt.tcl, \
+		$(LIBRARY_NAME)_ltt.log, \
+		$(HL)$(LIBRARY_NAME)$(NC) library))
+
+ltt-interfaces:
+	$(foreach dep,$(_LATTICE_INTF_DEPS), \
+		flock $(dep)/.lock sh -c "$(MAKE) -C $(dep)"; exit $$?)
+
+clean-ltt-interfaces:
+	$(foreach dep,$(_LATTICE_INTF_DEPS),$(MAKE) -C $(dep) clean-all;)
+
 endif
